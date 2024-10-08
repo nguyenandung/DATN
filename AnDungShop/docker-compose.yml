@@ -1,0 +1,153 @@
+version: '3.7'
+services:
+ #MySQL Service
+    mysql:
+        image: mysql
+        container_name: mysql_app_1
+        restart: always
+        tty: true
+        ports:
+            - "3307:3306"
+        environment:
+            MYSQL_DATABASE: ${DB_DATABASE}
+            MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+            # MYSQL_USER: ${DB_USERNAME}
+            # MYSQL_DATABASE: "abc"
+            # MYSQL_ROOT_PASSWORD: "abc"
+            # MYSQL_PASSWORD: "abc"
+            # MYSQL_USER: "abc"
+            SERVICE_TAGS: dev
+            SERVICE_NAME: mysql
+        volumes:
+            - dbdata:/var/lib/mysql/
+            - ./php/my.cnf:/etc/mysql/my.cnf
+        networks:
+            - app-network
+
+ #PHP Service
+    app:
+        build:
+            args:
+                user: sammy
+                uid: 1000
+            context: .
+            dockerfile: Dockerfile
+        image: php-8.1
+        container_name: app_php
+        restart: always
+        tty: true
+        # depends_on:
+        #     - db
+        environment:
+            SERVICE_NAME: app_php
+            SERVICE_TAGS: dev
+        ports:
+            - "9000:9000"
+        extra_hosts:
+            - "internal.host:host-gateway"
+        working_dir: /var/www
+        volumes:
+            - ./:/var/www
+            # - /var/www/vendor
+            - ./vendor:/var/www/vendor
+            - ./php/php.ini:/usr/local/etc/php/conf.d/local.ini
+        networks:
+            - app-network
+
+ #Nginx Service
+    webserver:
+        image: nginx:alpine
+        container_name: project_webserver-app_php
+        restart: always
+        tty: true
+        ports:
+            # - "${APP_PORT:-8283}:80"
+            - "8000:80"
+        depends_on:
+            - app
+        volumes:
+           - ./:/var/www
+           - ./php/conf:/etc/nginx/conf.d
+           - ./php/nginx/nginx.conf:/etc/nginx/nginx.conf:cached
+        networks:
+            - app-network
+
+    redis:
+        image: redis:alpine
+        container_name: redis-app_php
+        restart: unless-stopped
+        tty: true
+        ports:
+            - "${REDIS_PORT}:6379"
+        networks:
+            - app-network
+
+    supervisor:
+        image: php-8.1
+        networks:
+            - app-network
+        # depends_on:
+        #     - app
+        #     - webserver
+        command: /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+
+    node-js:
+        image: php-8.1
+        tty: true
+        networks:
+            - app-network
+        ports:
+            - "5173:5173"
+        environment:
+            - HOST=0.0.0.0
+            - VITE_URL=http://localhost:5173
+        # depends_on:
+        #     - app
+        #     - webserver
+        volumes:
+            - .:/var/www
+            - ./vendor:/var/www/vendor
+        command: sh -c "npm install && npm run dev --host"
+
+
+    # scheduler:
+    #     image: php-8.1
+    #     container_name: laravel-scheduler-app_php
+    #     # depends_on:
+    #     # - app
+    #     volumes:
+    #     - .:/var/www
+    #     environment:
+    #         APP_ENV: local
+    #         CONTAINER_ROLE: scheduler
+    #         CACHE_DRIVER: redis
+    #         SESSION_DRIVER: redis
+    #         QUEUE_DRIVER: redis
+    #         REDIS_HOST: redis
+
+    # queue:
+    #     image: php-8.1
+    #     container_name: sarah-queue-app_php
+    #     restart: always
+    #     working_dir: /var/www/
+    #     command: php artisan queue:work
+    #     # depends_on:
+    #     #     - app
+    #     volumes:
+    #         - ./:/var/www
+    #     networks:
+    #         - app-network
+
+ #Docker Networks
+networks:
+    app-network:
+        driver: bridge
+#Volumes
+volumes:
+    dbdata:
+        driver: local
+
+
+# docker exec -it app_php /bin/bash
+# docker compose up -d
